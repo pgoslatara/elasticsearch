@@ -16,6 +16,8 @@ import org.elasticsearch.cluster.ProjectState;
 import org.elasticsearch.cluster.metadata.DataStream;
 import org.elasticsearch.datastreams.lifecycle.DlmStep;
 
+import java.util.Optional;
+
 import static org.apache.logging.log4j.LogManager.getLogger;
 
 /**
@@ -45,5 +47,10 @@ public class NoopStep implements DlmStep {
     @Override
     public String stepDescription() {
         return "This step does absolutely nothing.";
+    }
+
+    @Override
+    public Optional<Integer> maxConcurrency() {
+        return Optional.empty();
     }
 }

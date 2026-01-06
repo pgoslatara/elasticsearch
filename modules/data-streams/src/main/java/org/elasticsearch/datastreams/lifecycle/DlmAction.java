@@ -11,9 +11,9 @@ package org.elasticsearch.datastreams.lifecycle;
 
 import java.util.List;
 
-public interface DlmPhase {
+public interface DlmAction {
 
-    String phaseName();
+    String actionName();
 
     String schedulingIndexOption();
 

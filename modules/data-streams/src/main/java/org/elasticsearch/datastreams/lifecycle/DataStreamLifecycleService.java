@@ -444,6 +444,8 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
                 );
             }
 
+            // TODO: New framework goes here
+
             affectedIndices += indicesToExcludeForRemainingRun.size();
             affectedDataStreams++;
         }

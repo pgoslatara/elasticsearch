@@ -9,7 +9,7 @@
 
 package org.elasticsearch.datastreams.lifecycle.phases;
 
-import org.elasticsearch.datastreams.lifecycle.DlmPhase;
+import org.elasticsearch.datastreams.lifecycle.DlmAction;
 import org.elasticsearch.datastreams.lifecycle.DlmStep;
 import org.elasticsearch.datastreams.lifecycle.steps.NoopStep;
 
@@ -19,9 +19,9 @@ import java.util.List;
 /**
  * A no-op phase used as a placeholder for testing.
  */
-public class NoopPhase implements DlmPhase {
+public class NoopAction implements DlmAction {
     @Override
-    public String phaseName() {
+    public String actionName() {
         return "No-op Phase";
     }
 
