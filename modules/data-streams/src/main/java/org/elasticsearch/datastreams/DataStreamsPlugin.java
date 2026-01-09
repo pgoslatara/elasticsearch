@@ -49,6 +49,7 @@ import org.elasticsearch.datastreams.action.TransportUpdateDataStreamMappingsAct
 import org.elasticsearch.datastreams.action.TransportUpdateDataStreamSettingsAction;
 import org.elasticsearch.datastreams.lifecycle.DataStreamLifecycleErrorStore;
 import org.elasticsearch.datastreams.lifecycle.DataStreamLifecycleService;
+import org.elasticsearch.datastreams.lifecycle.DlmAction;
 import org.elasticsearch.datastreams.lifecycle.action.DeleteDataStreamLifecycleAction;
 import org.elasticsearch.datastreams.lifecycle.action.GetDataStreamLifecycleStatsAction;
 import org.elasticsearch.datastreams.lifecycle.action.TransportDeleteDataStreamLifecycleAction;
@@ -209,6 +210,10 @@ public class DataStreamsPlugin extends Plugin implements ActionPlugin, HealthPlu
                 errorStoreInitialisationService.get()
             )
         );
+
+        // Register DLM actions (tiers) here. Order matters - they will be executed in the order they are listed for a given index.
+        var dlmActions = new DlmAction[] {};
+
         dataLifecycleInitialisationService.set(
             new DataStreamLifecycleService(
                 settings,
@@ -220,7 +225,8 @@ public class DataStreamsPlugin extends Plugin implements ActionPlugin, HealthPlu
                 errorStoreInitialisationService.get(),
                 services.allocationService(),
                 dataStreamLifecycleErrorsPublisher.get(),
-                services.dataStreamGlobalRetentionSettings()
+                services.dataStreamGlobalRetentionSettings(),
+                dlmActions
             )
         );
         dataLifecycleInitialisationService.get().init();

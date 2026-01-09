@@ -168,6 +168,7 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
     final ResultDeduplicator<Tuple<ProjectId, String>, Void> clusterStateChangesDeduplicator;
     private final DataStreamLifecycleHealthInfoPublisher dslHealthInfoPublisher;
     private final DataStreamGlobalRetentionSettings globalRetentionSettings;
+    private final DlmAction[] actions;
     private LongSupplier nowSupplier;
     private final Clock clock;
     private final DataStreamLifecycleErrorStore errorStore;
@@ -216,7 +217,8 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
         DataStreamLifecycleErrorStore errorStore,
         AllocationService allocationService,
         DataStreamLifecycleHealthInfoPublisher dataStreamLifecycleHealthInfoPublisher,
-        DataStreamGlobalRetentionSettings globalRetentionSettings
+        DataStreamGlobalRetentionSettings globalRetentionSettings,
+        DlmAction[] actions
     ) {
         this.settings = settings;
         this.client = client;
@@ -246,6 +248,7 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
             new DeleteSourceAndAddDownsampleIndexExecutor(allocationService)
         );
         this.dslHealthInfoPublisher = dataStreamLifecycleHealthInfoPublisher;
+        this.actions = actions;
     }
 
     /**
@@ -445,6 +448,35 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
             }
 
             // TODO: New framework goes here
+            for (DlmAction action : actions) {
+                var actionSchedule = dataStream.getSettings().getAsTime(action.schedulingIndexOption(), null);
+
+                if (actionSchedule == null) {
+                    // Action not configured for this data stream
+                    continue;
+                }
+
+                List<Index> indicesEligibleForAction = dataStream.getIndicesPastRetention(
+                    indexName -> projectState.metadata().index(indexName),
+                    nowSupplier,
+                    actionSchedule,
+                    false
+                );
+
+                indicesEligibleForAction.removeAll(indicesToExcludeForRemainingRun);
+
+                for (Index index : indicesEligibleForAction) {
+                    for (DlmStep step : action.steps().reversed()) {
+                        if (step.stepCompleted(index, projectState) == false) {
+                            // Throttling init
+                            step.execute(index, projectState);
+                            // Throttling closedown
+                            indicesToExcludeForRemainingRun.add(index);
+                            break;
+                        }
+                    }
+                }
+            }
 
             affectedIndices += indicesToExcludeForRemainingRun.size();
             affectedDataStreams++;

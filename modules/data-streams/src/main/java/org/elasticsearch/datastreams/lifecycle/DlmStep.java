@@ -10,18 +10,14 @@
 package org.elasticsearch.datastreams.lifecycle;
 
 import org.elasticsearch.cluster.ProjectState;
-import org.elasticsearch.cluster.metadata.DataStream;
-
-import java.util.Optional;
+import org.elasticsearch.index.Index;
 
 public interface DlmStep {
 
-    boolean stepCompleted(DataStream dataStream, ProjectState projectState);
+    boolean stepCompleted(Index index, ProjectState projectState);
 
-    void execute(DataStream dataStream, ProjectState projectState);
+    void execute(Index index, ProjectState projectState);
 
     String stepDescription();
-
-    Optional<Integer> maxConcurrency();
 
 }
