@@ -7,16 +7,18 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-package org.elasticsearch.datastreams.lifecycle.steps;
+package org.elasticsearch.datastreams.lifecycle.transitions.steps;
 
 // TODO: REMOVE BEFORE PR
 
 import org.apache.logging.log4j.Logger;
+import org.elasticsearch.action.ResultDeduplicator;
 import org.elasticsearch.cluster.ProjectState;
-import org.elasticsearch.cluster.metadata.DataStream;
+import org.elasticsearch.cluster.metadata.ProjectId;
+import org.elasticsearch.core.Tuple;
 import org.elasticsearch.datastreams.lifecycle.DlmStep;
-
-import java.util.Optional;
+import org.elasticsearch.index.Index;
+import org.elasticsearch.transport.TransportRequest;
 
 import static org.apache.logging.log4j.LogManager.getLogger;
 
@@ -29,7 +31,7 @@ public class NoopStep implements DlmStep {
     private int itterCount = 0;
 
     @Override
-    public boolean stepCompleted(DataStream dataStream, ProjectState projectState) {
+    public boolean stepCompleted(Index index, ProjectState projectState) {
         if (itterCount < 3) {
             itterCount++;
             return false;
@@ -39,18 +41,17 @@ public class NoopStep implements DlmStep {
     }
 
     @Override
-    public void execute(DataStream dataStream, ProjectState projectState) {
-        logger.info("Executing NoopStep for data stream: {}", dataStream.getName());
+    public void execute(
+        Index index,
+        ProjectState projectState,
+        ResultDeduplicator<Tuple<ProjectId, TransportRequest>, Void> transportActionsDeduplicator
+    ) {
+        logger.info("Executing NoopStep for index: {} in project: {}", index.getName(), projectState.projectId());
         // No-op
     }
 
     @Override
     public String stepDescription() {
         return "This step does absolutely nothing.";
-    }
-
-    @Override
-    public Optional<Integer> maxConcurrency() {
-        return Optional.empty();
     }
 }

@@ -447,36 +447,7 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
                 );
             }
 
-            // TODO: New framework goes here
-            for (DlmAction action : actions) {
-                var actionSchedule = dataStream.getSettings().getAsTime(action.schedulingIndexOption(), null);
-
-                if (actionSchedule == null) {
-                    // Action not configured for this data stream
-                    continue;
-                }
-
-                List<Index> indicesEligibleForAction = dataStream.getIndicesPastRetention(
-                    indexName -> projectState.metadata().index(indexName),
-                    nowSupplier,
-                    actionSchedule,
-                    false
-                );
-
-                indicesEligibleForAction.removeAll(indicesToExcludeForRemainingRun);
-
-                for (Index index : indicesEligibleForAction) {
-                    for (DlmStep step : action.steps().reversed()) {
-                        if (step.stepCompleted(index, projectState) == false) {
-                            // Throttling init
-                            step.execute(index, projectState);
-                            // Throttling closedown
-                            indicesToExcludeForRemainingRun.add(index);
-                            break;
-                        }
-                    }
-                }
-            }
+            processTierTransitions(projectState, dataStream, indicesToExcludeForRemainingRun);
 
             affectedIndices += indicesToExcludeForRemainingRun.size();
             affectedDataStreams++;
@@ -489,6 +460,38 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
             affectedDataStreams,
             project.id()
         );
+    }
+
+    private void processTierTransitions(ProjectState projectState, DataStream dataStream, Set<Index> indicesToExcludeForRemainingRun) {
+        for (DlmAction action : actions) {
+            var actionSchedule = action.schedulingFieldFunction().apply(dataStream.getDataLifecycle());
+
+            if (actionSchedule == null) {
+                // Action not configured for this data stream
+                continue;
+            }
+
+            List<Index> indicesEligibleForAction = dataStream.getIndicesPastRetention(
+                indexName -> projectState.metadata().index(indexName),
+                nowSupplier,
+                actionSchedule,
+                false
+            );
+
+            indicesEligibleForAction.removeAll(indicesToExcludeForRemainingRun);
+
+            for (Index index : indicesEligibleForAction) {
+                for (DlmStep step : action.steps().reversed()) {
+                    if (step.stepCompleted(index, projectState) == false) {
+                        // Throttling init
+                        step.execute(index, projectState, transportActionsDeduplicator);
+                        // Throttling closedown
+                        indicesToExcludeForRemainingRun.add(index);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     // visible for testing

@@ -183,7 +183,8 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
             errorStore,
             allocationService,
             new DataStreamLifecycleHealthInfoPublisher(Settings.EMPTY, client, clusterService, errorStore),
-            globalRetentionSettings
+            globalRetentionSettings,
+            new DlmAction[] {}
         );
         clientDelegate = null;
         dataStreamLifecycleService.init();
@@ -1499,7 +1500,8 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
             errorStore,
             mock(AllocationService.class),
             new DataStreamLifecycleHealthInfoPublisher(Settings.EMPTY, getTransportRequestsRecordingClient(), clusterService, errorStore),
-            globalRetentionSettings
+            globalRetentionSettings,
+            new DlmAction[] {}
         );
         assertThat(service.getLastRunDuration(), is(nullValue()));
         assertThat(service.getTimeBetweenStarts(), is(nullValue()));

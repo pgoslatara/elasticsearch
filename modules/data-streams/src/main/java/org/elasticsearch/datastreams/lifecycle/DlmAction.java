@@ -9,13 +9,18 @@
 
 package org.elasticsearch.datastreams.lifecycle;
 
+import org.elasticsearch.cluster.metadata.DataStreamLifecycle;
+import org.elasticsearch.core.TimeValue;
+
 import java.util.List;
+import java.util.function.Function;
 
 public interface DlmAction {
 
     String actionName();
 
-    String schedulingIndexOption();
+    // Used to retrieve the TimeUnit that schedules this action from the DataStreamLifecycle
+    Function<DataStreamLifecycle, TimeValue> schedulingFieldFunction();
 
     List<DlmStep> steps();
 

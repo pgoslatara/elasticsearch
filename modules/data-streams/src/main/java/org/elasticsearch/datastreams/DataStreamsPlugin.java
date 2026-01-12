@@ -64,6 +64,7 @@ import org.elasticsearch.datastreams.lifecycle.rest.RestDeleteDataStreamLifecycl
 import org.elasticsearch.datastreams.lifecycle.rest.RestExplainDataStreamLifecycleAction;
 import org.elasticsearch.datastreams.lifecycle.rest.RestGetDataStreamLifecycleAction;
 import org.elasticsearch.datastreams.lifecycle.rest.RestPutDataStreamLifecycleAction;
+import org.elasticsearch.datastreams.lifecycle.transitions.actions.NoopAction;
 import org.elasticsearch.datastreams.options.action.DeleteDataStreamOptionsAction;
 import org.elasticsearch.datastreams.options.action.GetDataStreamOptionsAction;
 import org.elasticsearch.datastreams.options.action.TransportDeleteDataStreamOptionsAction;
@@ -212,7 +213,7 @@ public class DataStreamsPlugin extends Plugin implements ActionPlugin, HealthPlu
         );
 
         // Register DLM actions (tiers) here. Order matters - they will be executed in the order they are listed for a given index.
-        var dlmActions = new DlmAction[] {};
+        var dlmActions = new DlmAction[] { new NoopAction() };
 
         dataLifecycleInitialisationService.set(
             new DataStreamLifecycleService(
