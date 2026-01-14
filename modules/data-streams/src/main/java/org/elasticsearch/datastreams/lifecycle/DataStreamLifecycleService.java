@@ -464,7 +464,8 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
         );
     }
 
-    private void maybeProcessTierTransitions(ProjectState projectState, DataStream dataStream, Set<Index> indicesToExcludeForRemainingRun) {
+    // Visible for testing
+    void maybeProcessTierTransitions(ProjectState projectState, DataStream dataStream, Set<Index> indicesToExclude) {
         for (DlmAction action : actions) {
             var actionSchedule = action.schedulingFieldFunction().apply(dataStream.getDataLifecycle());
 
@@ -484,7 +485,7 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
                 false
             );
 
-            indicesEligibleForAction.removeAll(indicesToExcludeForRemainingRun);
+            indicesEligibleForAction.removeAll(indicesToExclude);
 
             logger.trace(
                 "Data stream lifecycle action [{}] found [{}] eligible indices for data stream [{}]",
@@ -530,7 +531,7 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
                             continue;
                         }
                         // Throttling closedown
-                        indicesToExcludeForRemainingRun.add(index);
+                        indicesToExclude.add(index);
                         break;
                     }
                 }

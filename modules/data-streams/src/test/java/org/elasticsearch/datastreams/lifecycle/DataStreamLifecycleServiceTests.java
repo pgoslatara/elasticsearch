@@ -14,6 +14,7 @@ import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionRequest;
 import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.action.ActionType;
+import org.elasticsearch.action.ResultDeduplicator;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.action.admin.indices.forcemerge.ForceMergeRequest;
 import org.elasticsearch.action.admin.indices.readonly.AddIndexBlockRequest;
@@ -33,6 +34,7 @@ import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.cluster.ClusterName;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.EmptyClusterInfoService;
+import org.elasticsearch.cluster.ProjectState;
 import org.elasticsearch.cluster.TestShardRoutingRoleStrategies;
 import org.elasticsearch.cluster.block.ClusterBlock;
 import org.elasticsearch.cluster.block.ClusterBlocks;
@@ -70,6 +72,7 @@ import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.datastreams.lifecycle.health.DataStreamLifecycleHealthInfoPublisher;
 import org.elasticsearch.datastreams.lifecycle.transitions.DlmAction;
+import org.elasticsearch.datastreams.lifecycle.transitions.DlmStep;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.IndexMode;
 import org.elasticsearch.index.IndexSettings;
@@ -103,6 +106,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import static org.elasticsearch.cluster.metadata.IndexMetadata.APIBlock.WRITE;
 import static org.elasticsearch.cluster.metadata.IndexMetadata.DownsampleTaskStatus.STARTED;
@@ -1819,5 +1823,266 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
     private interface DoExecuteDelegate {
         @SuppressWarnings("rawtypes")
         void doExecute(ActionType action, ActionRequest request, ActionListener listener);
+    }
+
+    // Corrected TestDlmStep to implement DlmStep interface
+    static class TestDlmStep implements DlmStep {
+        boolean executed = false;
+        boolean throwOnExecute = false;
+        java.util.function.BiFunction<Index, ProjectState, Boolean> completedFn;
+        java.util.function.Consumer<Index> onExecute;
+        final String name;
+
+        TestDlmStep(String name, java.util.function.BiFunction<Index, ProjectState, Boolean> completedFn) {
+            this.name = name;
+            this.completedFn = completedFn;
+        }
+
+        @Override
+        public String stepName() {
+            return name;
+        }
+
+        @Override
+        public boolean stepCompleted(Index index, ProjectState projectState) {
+            return completedFn != null ? completedFn.apply(index, projectState) : false;
+        }
+
+        @Override
+        public void execute(
+            Index index,
+            ProjectState projectState,
+            ResultDeduplicator<
+                org.elasticsearch.core.Tuple<org.elasticsearch.cluster.metadata.ProjectId, org.elasticsearch.transport.TransportRequest>,
+                Void> deduplicator
+        ) {
+            executed = true;
+            if (onExecute != null) onExecute.accept(index);
+            if (throwOnExecute) throw new RuntimeException("Simulated step failure");
+        }
+    }
+
+    static class TestDlmAction implements DlmAction {
+        private final String name;
+        private final List<DlmStep> steps;
+
+        TestDlmAction(String name, List<DlmStep> steps) {
+            this.name = name;
+            this.steps = steps;
+        }
+
+        @Override
+        public String actionName() {
+            return name;
+        }
+
+        @Override
+        public List<DlmStep> steps() {
+            return new java.util.ArrayList<>(steps);
+        }
+
+        @Override
+        public Function<DataStreamLifecycle, TimeValue> schedulingFieldFunction() {
+            return dsl -> null;
+        }
+    }
+
+    public void testMaybeProcessTierTransitions_multipleActions() {
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        int numBackingIndices = 1;
+        ProjectMetadata.Builder builder = createProjectMetadataBuilder(randomProjectIdOrDefault());
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            numBackingIndices,
+            settings(IndexVersion.current()),
+            DataStreamLifecycle.dataLifecycleBuilder().build(),
+            now
+        );
+        builder.put(dataStream);
+        ProjectMetadata project = builder.build();
+        ClusterState state = ClusterState.builder(ClusterName.DEFAULT).putProjectMetadata(builder).build();
+        setState(clusterService, state);
+        ProjectState projectState = clusterService.state().projectState(project.id());
+
+        TestDlmStep step1 = new TestDlmStep("step1", (i, ps) -> false);
+        TestDlmStep step2 = new TestDlmStep("step2", (i, ps) -> false);
+        TestDlmAction action1 = new TestDlmAction("action1", java.util.List.of(step1));
+        TestDlmAction action2 = new TestDlmAction("action2", java.util.List.of(step2));
+        DataStreamLifecycleService testService = new DataStreamLifecycleService(
+            Settings.EMPTY,
+            getTransportRequestsRecordingClient(),
+            clusterService,
+            Clock.systemUTC(),
+            threadPool,
+            () -> now,
+            new DataStreamLifecycleErrorStore(() -> now),
+            mock(AllocationService.class),
+            new DataStreamLifecycleHealthInfoPublisher(
+                Settings.EMPTY,
+                getTransportRequestsRecordingClient(),
+                clusterService,
+                new DataStreamLifecycleErrorStore(() -> now)
+            ),
+            globalRetentionSettings,
+            new DlmAction[] { action1, action2 }
+        );
+        testService.init();
+        Set<Index> indicesToExclude = new HashSet<>();
+        testService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+        assertTrue(step1.executed);
+        assertTrue(step2.executed);
+        assertEquals(1, indicesToExclude.size());
+    }
+
+    public void testMaybeProcessTierTransitions_actionWithNoSteps() {
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        int numBackingIndices = 1;
+        ProjectMetadata.Builder builder = createProjectMetadataBuilder(randomProjectIdOrDefault());
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            numBackingIndices,
+            settings(IndexVersion.current()),
+            DataStreamLifecycle.dataLifecycleBuilder().build(),
+            now
+        );
+        builder.put(dataStream);
+        ProjectMetadata project = builder.build();
+        ClusterState state = ClusterState.builder(ClusterName.DEFAULT).putProjectMetadata(builder).build();
+        setState(clusterService, state);
+        ProjectState projectState = clusterService.state().projectState(project.id());
+
+        TestDlmAction action = new TestDlmAction("action", java.util.List.of());
+        DataStreamLifecycleService testService = new DataStreamLifecycleService(
+            Settings.EMPTY,
+            getTransportRequestsRecordingClient(),
+            clusterService,
+            Clock.systemUTC(),
+            threadPool,
+            () -> now,
+            new DataStreamLifecycleErrorStore(() -> now),
+            mock(AllocationService.class),
+            new DataStreamLifecycleHealthInfoPublisher(
+                Settings.EMPTY,
+                getTransportRequestsRecordingClient(),
+                clusterService,
+                new DataStreamLifecycleErrorStore(() -> now)
+            ),
+            globalRetentionSettings,
+            new DlmAction[] { action }
+        );
+        testService.init();
+        Set<Index> indicesToExclude = new HashSet<>();
+        testService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+        assertTrue(indicesToExclude.isEmpty());
+    }
+
+    public void testMaybeProcessTierTransitions_stepThrowsException() {
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        int numBackingIndices = 1;
+        ProjectMetadata.Builder builder = createProjectMetadataBuilder(randomProjectIdOrDefault());
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            numBackingIndices,
+            settings(IndexVersion.current()),
+            DataStreamLifecycle.dataLifecycleBuilder().build(),
+            now
+        );
+        builder.put(dataStream);
+        ProjectMetadata project = builder.build();
+        ClusterState state = ClusterState.builder(ClusterName.DEFAULT).putProjectMetadata(builder).build();
+        setState(clusterService, state);
+        ProjectState projectState = clusterService.state().projectState(project.id());
+
+        TestDlmStep throwingStep = new TestDlmStep("throwing-step", (i, ps) -> false);
+        throwingStep.throwOnExecute = true;
+        TestDlmAction action = new TestDlmAction("action", java.util.List.of(throwingStep));
+        DataStreamLifecycleService testService = new DataStreamLifecycleService(
+            Settings.EMPTY,
+            getTransportRequestsRecordingClient(),
+            clusterService,
+            Clock.systemUTC(),
+            threadPool,
+            () -> now,
+            new DataStreamLifecycleErrorStore(() -> now),
+            mock(AllocationService.class),
+            new DataStreamLifecycleHealthInfoPublisher(
+                Settings.EMPTY,
+                getTransportRequestsRecordingClient(),
+                clusterService,
+                new DataStreamLifecycleErrorStore(() -> now)
+            ),
+            globalRetentionSettings,
+            new DlmAction[] { action }
+        );
+        testService.init();
+        Set<Index> indicesToExclude = new HashSet<>();
+        boolean threw = false;
+        try {
+            testService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+        } catch (Exception e) {
+            threw = true;
+        }
+        assertTrue(threw);
+    }
+
+    public void testMaybeProcessTierTransitions_stepBecomesCompleteAfterExecute() {
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        int numBackingIndices = 1;
+        ProjectMetadata.Builder builder = createProjectMetadataBuilder(randomProjectIdOrDefault());
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            numBackingIndices,
+            settings(IndexVersion.current()),
+            DataStreamLifecycle.dataLifecycleBuilder().build(),
+            now
+        );
+        builder.put(dataStream);
+        ProjectMetadata project = builder.build();
+        ClusterState state = ClusterState.builder(ClusterName.DEFAULT).putProjectMetadata(builder).build();
+        setState(clusterService, state);
+        ProjectState projectState = clusterService.state().projectState(project.id());
+
+        final boolean[] complete = { false };
+        TestDlmStep step = new TestDlmStep("step", (i, ps) -> complete[0]);
+        step.onExecute = idx -> complete[0] = true;
+        TestDlmAction action = new TestDlmAction("action", java.util.List.of(step));
+        DataStreamLifecycleService testService = new DataStreamLifecycleService(
+            Settings.EMPTY,
+            getTransportRequestsRecordingClient(),
+            clusterService,
+            Clock.systemUTC(),
+            threadPool,
+            () -> now,
+            new DataStreamLifecycleErrorStore(() -> now),
+            mock(AllocationService.class),
+            new DataStreamLifecycleHealthInfoPublisher(
+                Settings.EMPTY,
+                getTransportRequestsRecordingClient(),
+                clusterService,
+                new DataStreamLifecycleErrorStore(() -> now)
+            ),
+            globalRetentionSettings,
+            new DlmAction[] { action }
+        );
+        testService.init();
+        Set<Index> indicesToExclude = new HashSet<>();
+        testService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+        assertTrue(step.executed);
+        assertTrue(complete[0]);
+        assertEquals(1, indicesToExclude.size());
+    }
+
+    private static ProjectMetadata.Builder createProjectMetadataBuilder(ProjectId id) {
+        ProjectMetadata.Builder builder = ProjectMetadata.builder(id);
+        builder.dataStreams(Map.of(), Map.of());
+        builder.templates(Map.of());
+        builder.componentTemplates(Map.of());
+        builder.indexGraveyard(IndexGraveyard.builder().build());
+        builder.customs(Map.of());
+        return builder;
     }
 }
