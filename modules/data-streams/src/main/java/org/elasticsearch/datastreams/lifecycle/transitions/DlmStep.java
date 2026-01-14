@@ -7,7 +7,7 @@
  * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
-package org.elasticsearch.datastreams.lifecycle;
+package org.elasticsearch.datastreams.lifecycle.transitions;
 
 import org.elasticsearch.action.ResultDeduplicator;
 import org.elasticsearch.cluster.ProjectState;

@@ -11,8 +11,8 @@ package org.elasticsearch.datastreams.lifecycle.transitions.actions;
 
 import org.elasticsearch.cluster.metadata.DataStreamLifecycle;
 import org.elasticsearch.core.TimeValue;
-import org.elasticsearch.datastreams.lifecycle.DlmAction;
-import org.elasticsearch.datastreams.lifecycle.DlmStep;
+import org.elasticsearch.datastreams.lifecycle.transitions.DlmAction;
+import org.elasticsearch.datastreams.lifecycle.transitions.DlmStep;
 import org.elasticsearch.datastreams.lifecycle.transitions.steps.NoopStep;
 
 import java.util.List;

@@ -16,7 +16,7 @@ import org.elasticsearch.action.ResultDeduplicator;
 import org.elasticsearch.cluster.ProjectState;
 import org.elasticsearch.cluster.metadata.ProjectId;
 import org.elasticsearch.core.Tuple;
-import org.elasticsearch.datastreams.lifecycle.DlmStep;
+import org.elasticsearch.datastreams.lifecycle.transitions.DlmStep;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.transport.TransportRequest;
 

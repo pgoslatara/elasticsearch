@@ -18,6 +18,7 @@ module org.elasticsearch.datastreams {
     exports org.elasticsearch.datastreams.lifecycle.action to org.elasticsearch.server;
     exports org.elasticsearch.datastreams.lifecycle;
     exports org.elasticsearch.datastreams.options.action to org.elasticsearch.server;
+    exports org.elasticsearch.datastreams.lifecycle.transitions;
 
     provides org.elasticsearch.features.FeatureSpecification with org.elasticsearch.datastreams.DataStreamFeatures;
 }
