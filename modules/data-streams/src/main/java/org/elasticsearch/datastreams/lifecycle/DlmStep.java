@@ -26,6 +26,6 @@ public interface DlmStep {
         ResultDeduplicator<Tuple<ProjectId, TransportRequest>, Void> transportActionsDeduplicator
     );
 
-    String stepDescription();
+    String stepName();
 
 }

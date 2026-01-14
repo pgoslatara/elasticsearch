@@ -447,7 +447,7 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
                 );
             }
 
-            processTierTransitions(projectState, dataStream, indicesToExcludeForRemainingRun);
+            maybeProcessTierTransitions(projectState, dataStream, indicesToExcludeForRemainingRun);
 
             affectedIndices += indicesToExcludeForRemainingRun.size();
             affectedDataStreams++;
@@ -462,12 +462,16 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
         );
     }
 
-    private void processTierTransitions(ProjectState projectState, DataStream dataStream, Set<Index> indicesToExcludeForRemainingRun) {
+    private void maybeProcessTierTransitions(ProjectState projectState, DataStream dataStream, Set<Index> indicesToExcludeForRemainingRun) {
         for (DlmAction action : actions) {
             var actionSchedule = action.schedulingFieldFunction().apply(dataStream.getDataLifecycle());
 
             if (actionSchedule == null) {
-                // Action not configured for this data stream
+                logger.trace(
+                    "Data stream lifecycle action [{}] is not scheduled for data stream [{}]",
+                    action.actionName(),
+                    dataStream.getName()
+                );
                 continue;
             }
 
@@ -480,11 +484,49 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
 
             indicesEligibleForAction.removeAll(indicesToExcludeForRemainingRun);
 
+            logger.trace(
+                "Data stream lifecycle action [{}] found [{}] eligible indices for data stream [{}]",
+                action.actionName(),
+                indicesEligibleForAction.size(),
+                dataStream.getName()
+            );
+
             for (Index index : indicesEligibleForAction) {
                 for (DlmStep step : action.steps().reversed()) {
-                    if (step.stepCompleted(index, projectState) == false) {
+                    boolean stepCompleted;
+                    try {
+                        stepCompleted = step.stepCompleted(index, projectState);
+                    } catch (Exception ex) {
+                        logger.warn(
+                            logger.getMessageFactory()
+                                .newMessage(
+                                    "Unable to execute check for step complete [{}] for action [{}] on index [{}]",
+                                    step.stepName(),
+                                    action.actionName(),
+                                    index.getName()
+                                ),
+                            ex
+                        );
+                        continue;
+                    }
+
+                    if (stepCompleted == false) {
                         // Throttling init
-                        step.execute(index, projectState, transportActionsDeduplicator);
+                        try {
+                            step.execute(index, projectState, transportActionsDeduplicator);
+                        } catch (Exception ex) {
+                            logger.warn(
+                                logger.getMessageFactory()
+                                    .newMessage(
+                                        "Unable to execute step [{}] for action [{}] on index [{}]",
+                                        step.stepName(),
+                                        action.actionName(),
+                                        index.getName()
+                                    ),
+                                ex
+                            );
+                            continue;
+                        }
                         // Throttling closedown
                         indicesToExcludeForRemainingRun.add(index);
                         break;

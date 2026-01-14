@@ -51,7 +51,7 @@ public class NoopStep implements DlmStep {
     }
 
     @Override
-    public String stepDescription() {
+    public String stepName() {
         return "This step does absolutely nothing.";
     }
 }
