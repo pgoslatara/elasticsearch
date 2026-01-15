@@ -1838,6 +1838,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
 
         @Override
         public boolean stepCompleted(Index index, ProjectState projectState) {
+            completedCheckCount++;
             return isCompleted;
         }
 
@@ -1921,5 +1922,212 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         assertThat(step1.completedCheckCount, equalTo(0));
         assertThat(step1.executeCount, equalTo(0));
         assertThat(indicesToExclude, empty());
+    }
+
+    public void testMaybeProcessTierTransitionsNoEligibleIndices() {
+        TestDlmStep step = new TestDlmStep();
+        TimeValue schedule = TimeValue.timeValueHours(1);
+        TestDlmAction action = new TestDlmAction(schedule, step);
+        actions.add(action);
+
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
+        DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            3,
+            0,
+            settings(IndexVersion.current()),
+            dataLifecycle,
+            null,
+            now
+        );
+        builder.put(dataStream);
+        ProjectState projectState = projectStateFromProject(builder);
+
+        Set<Index> indicesToExclude = new HashSet<>();
+        dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+
+        assertThat(action.actionScheduleChecked, equalTo(true));
+        assertThat(step.completedCheckCount, equalTo(0));
+        assertThat(step.executeCount, equalTo(0));
+        assertThat(indicesToExclude, empty());
+    }
+
+    public void testMaybeProcessTierTransitionsEligibleIndicesExcluded() {
+        TestDlmStep step = new TestDlmStep();
+        TimeValue schedule = TimeValue.timeValueMillis(1);
+        TestDlmAction action = new TestDlmAction(schedule, step);
+        actions.add(action);
+
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
+        DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            3,
+            0,
+            settings(IndexVersion.current()),
+            dataLifecycle,
+            null,
+            now
+        );
+        builder.put(dataStream);
+        ProjectState projectState = projectStateFromProject(builder);
+
+        Set<Index> indicesEligible = new HashSet<>(
+            dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false)
+        );
+        Set<Index> indicesToExclude = new HashSet<>(indicesEligible);
+
+        dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+
+        assertThat(action.actionScheduleChecked, equalTo(true));
+        assertThat(step.completedCheckCount, equalTo(0));
+        assertThat(step.executeCount, equalTo(0));
+        assertThat(indicesToExclude, equalTo(indicesEligible));
+    }
+
+    public void testMaybeProcessTierTransitionsAllStepsCompleted() {
+        TestDlmStep step1 = new TestDlmStep();
+        step1.isCompleted = true;
+        TestDlmStep step2 = new TestDlmStep();
+        step2.isCompleted = true;
+        TimeValue schedule = TimeValue.timeValueMillis(1);
+        TestDlmAction action = new TestDlmAction(schedule, step1, step2);
+        actions.add(action);
+
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
+        DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            3,
+            0,
+            settings(IndexVersion.current()),
+            dataLifecycle,
+            null,
+            now
+        );
+        builder.put(dataStream);
+        ProjectState projectState = projectStateFromProject(builder);
+
+        Set<Index> indicesToExclude = new HashSet<>();
+        dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+
+        int eligibleCount = dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false).size();
+        assertThat(step1.completedCheckCount, equalTo(eligibleCount));
+        assertThat(step2.completedCheckCount, equalTo(eligibleCount));
+        assertThat(step1.executeCount, equalTo(0));
+        assertThat(step2.executeCount, equalTo(0));
+        assertThat(indicesToExclude, empty());
+    }
+
+    public void testMaybeProcessTierTransitionsOneStepCompleted() {
+        TestDlmStep step1 = new TestDlmStep();
+        step1.isCompleted = false;
+        TestDlmStep step2 = new TestDlmStep();
+        step2.isCompleted = true;
+        TimeValue schedule = TimeValue.timeValueMillis(1);
+        TestDlmAction action = new TestDlmAction(schedule, step1, step2);
+        actions.add(action);
+
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
+        DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            3,
+            0,
+            settings(IndexVersion.current()),
+            dataLifecycle,
+            null,
+            now
+        );
+        builder.put(dataStream);
+        ProjectState projectState = projectStateFromProject(builder);
+
+        Set<Index> indicesToExclude = new HashSet<>();
+        dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+
+        int eligibleCount = dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false).size();
+        assertThat(step1.completedCheckCount, equalTo(eligibleCount));
+        assertThat(step2.completedCheckCount, equalTo(eligibleCount));
+        assertThat(step1.executeCount, equalTo(eligibleCount));
+        assertThat(step2.executeCount, equalTo(0));
+        assertThat(indicesToExclude, hasSize(eligibleCount));
+    }
+
+    public void testMaybeProcessTierTransitionsNoStepsCompleted() {
+        TestDlmStep step1 = new TestDlmStep();
+        TestDlmStep step2 = new TestDlmStep();
+        TimeValue schedule = TimeValue.timeValueMillis(1);
+        TestDlmAction action = new TestDlmAction(schedule, step1, step2);
+        actions.add(action);
+
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
+        DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            3,
+            0,
+            settings(IndexVersion.current()),
+            dataLifecycle,
+            null,
+            now
+        );
+        builder.put(dataStream);
+        ProjectState projectState = projectStateFromProject(builder);
+
+        Set<Index> indicesToExclude = new HashSet<>();
+        dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+
+        int eligibleCount = dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false).size();
+        assertThat(step1.completedCheckCount, equalTo(0));
+        assertThat(step2.completedCheckCount, equalTo(eligibleCount));
+        assertThat(step1.executeCount, equalTo(0));
+        assertThat(step2.executeCount, equalTo(eligibleCount));
+        assertThat(indicesToExclude, hasSize(eligibleCount));
+    }
+
+    public void testMaybeProcessTierTransitionsStepExecutionThrows() {
+        TestDlmStep step1 = new TestDlmStep();
+        TestDlmStep step2 = new TestDlmStep();
+        step2.throwOnExecute = true;
+        TimeValue schedule = TimeValue.timeValueMillis(1);
+        TestDlmAction action = new TestDlmAction(schedule, step1, step2);
+        actions.add(action);
+
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
+        DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            3,
+            0,
+            settings(IndexVersion.current()),
+            dataLifecycle,
+            null,
+            now
+        );
+        builder.put(dataStream);
+        ProjectState projectState = projectStateFromProject(builder);
+
+        Set<Index> indicesToExclude = new HashSet<>();
+        dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+
+        int eligibleCount = dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false).size();
+        assertThat(step1.completedCheckCount, equalTo(eligibleCount));
+        assertThat(step2.completedCheckCount, equalTo(eligibleCount));
+        assertThat(step1.executeCount, equalTo(eligibleCount));
+        assertThat(step2.executeCount, equalTo(eligibleCount));
+        assertThat(indicesToExclude, hasSize(eligibleCount));
     }
 }
