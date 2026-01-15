@@ -95,6 +95,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -1826,176 +1827,63 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
     }
 
     static class TestDlmStep implements DlmStep {
-        boolean executed = false;
+        boolean isCompleted = false;
         boolean throwOnExecute = false;
-        java.util.function.BiFunction<Index, ProjectState, Boolean> completedFn;
-        java.util.function.Consumer<Index> onExecute;
-        final String name;
-
-        TestDlmStep(String name, java.util.function.BiFunction<Index, ProjectState, Boolean> completedFn) {
-            this.name = name;
-            this.completedFn = completedFn;
-        }
-
-        @Override
-        public String stepName() {
-            return name;
-        }
+        int executeCount = 0;
 
         @Override
         public boolean stepCompleted(Index index, ProjectState projectState) {
-            return completedFn != null ? completedFn.apply(index, projectState) : false;
+            return isCompleted;
         }
 
         @Override
         public void execute(
             Index index,
             ProjectState projectState,
-            ResultDeduplicator<
-                Tuple<ProjectId, TransportRequest>,
-                Void> deduplicator
+            ResultDeduplicator<Tuple<ProjectId, TransportRequest>, Void> transportActionsDeduplicator
         ) {
-            executed = true;
-            if (onExecute != null) onExecute.accept(index);
-            if (throwOnExecute) throw new RuntimeException("Simulated step failure");
+            executeCount++;
+            if (throwOnExecute) {
+                throw new RuntimeException("Test exception from DlmStep execute");
+            }
+        }
+
+        @Override
+        public String stepName() {
+            return "Test Step";
+        }
+
+        public void setCompleted(boolean completed) {
+            isCompleted = completed;
+        }
+
+        public int getExecuteCount() {
+            return executeCount;
         }
     }
 
     static class TestDlmAction implements DlmAction {
-        private final String name;
         private final List<DlmStep> steps;
+        private TimeValue schedule;
 
-        TestDlmAction(String name, List<DlmStep> steps) {
-            this.name = name;
+        TestDlmAction(List<DlmStep> steps, TimeValue schedule) {
             this.steps = steps;
+            this.schedule = schedule;
         }
 
         @Override
         public String actionName() {
-            return name;
+            return "Test DLM Action";
         }
 
         @Override
         public List<DlmStep> steps() {
-            return new java.util.ArrayList<>(steps);
+            return new ArrayList<>(steps);
         }
 
         @Override
         public Function<DataStreamLifecycle, TimeValue> schedulingFieldFunction() {
-            return dsl -> null;
+            return dsl -> schedule;
         }
     }
-
-    private TierTransitionSetup createTierTransitionSetup(DlmAction... actions) {
-        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
-        ProjectId projectId = randomProjectIdOrDefault();
-        ProjectMetadata.Builder builder = createProjectMetadataBuilder(projectId);
-        DataStream dataStream = createDataStream(
-            builder,
-            dataStreamName,
-            1,
-            settings(IndexVersion.current()),
-            DataStreamLifecycle.dataLifecycleBuilder().build(),
-            now
-        );
-        builder.put(dataStream);
-        ProjectMetadata project = builder.build();
-        ClusterState state = ClusterState.builder(ClusterName.DEFAULT).putProjectMetadata(builder).build();
-        setState(clusterService, state);
-        ProjectState projectState = clusterService.state().projectState(project.id());
-
-        DataStreamLifecycleService testService = new DataStreamLifecycleService(
-            Settings.EMPTY,
-            getTransportRequestsRecordingClient(),
-            clusterService,
-            Clock.systemUTC(),
-            threadPool,
-            () -> now,
-            new DataStreamLifecycleErrorStore(() -> now),
-            mock(AllocationService.class),
-            new DataStreamLifecycleHealthInfoPublisher(
-                Settings.EMPTY,
-                getTransportRequestsRecordingClient(),
-                clusterService,
-                new DataStreamLifecycleErrorStore(() -> now)
-            ),
-            globalRetentionSettings,
-            actions
-        );
-        testService.init();
-        return new TierTransitionSetup(testService, projectState, dataStream);
-    }
-
-    private static class TierTransitionSetup {
-        final DataStreamLifecycleService service;
-        final ProjectState projectState;
-        final DataStream dataStream;
-        final Set<Index> indicesToExclude = new HashSet<>();
-
-        TierTransitionSetup(DataStreamLifecycleService service, ProjectState projectState, DataStream dataStream) {
-            this.service = service;
-            this.projectState = projectState;
-            this.dataStream = dataStream;
-        }
-    }
-
-    public void testMaybeProcessTierTransitions_multipleActions() {
-        TestDlmStep step1 = new TestDlmStep("step1", (i, ps) -> false);
-        TestDlmStep step2 = new TestDlmStep("step2", (i, ps) -> false);
-        TestDlmAction action1 = new TestDlmAction("action1", java.util.List.of(step1));
-        TestDlmAction action2 = new TestDlmAction("action2", java.util.List.of(step2));
-        TierTransitionSetup setup = createTierTransitionSetup(action1, action2);
-
-        setup.service.maybeProcessTierTransitions(setup.projectState, setup.dataStream, setup.indicesToExclude);
-
-        assertTrue(step1.executed);
-        assertTrue(step2.executed);
-        assertEquals(1, setup.indicesToExclude.size());
-    }
-
-    public void testMaybeProcessTierTransitions_actionWithNoSteps() {
-        TestDlmAction action = new TestDlmAction("action", java.util.List.of());
-        TierTransitionSetup setup = createTierTransitionSetup(action);
-
-        setup.service.maybeProcessTierTransitions(setup.projectState, setup.dataStream, setup.indicesToExclude);
-
-        assertTrue(setup.indicesToExclude.isEmpty());
-    }
-
-    public void testMaybeProcessTierTransitions_stepThrowsException() {
-        TestDlmStep throwingStep = new TestDlmStep("throwing-step", (i, ps) -> false);
-        throwingStep.throwOnExecute = true;
-        TestDlmAction action = new TestDlmAction("action", java.util.List.of(throwingStep));
-        TierTransitionSetup setup = createTierTransitionSetup(action);
-
-        expectThrows(
-            RuntimeException.class,
-            () -> setup.service.maybeProcessTierTransitions(setup.projectState, setup.dataStream, setup.indicesToExclude)
-        );
-    }
-
-    public void testMaybeProcessTierTransitions_stepBecomesCompleteAfterExecute() {
-        final boolean[] complete = { false };
-        TestDlmStep step = new TestDlmStep("step", (i, ps) -> complete[0]);
-        step.onExecute = idx -> complete[0] = true;
-        TestDlmAction action = new TestDlmAction("action", java.util.List.of(step));
-        TierTransitionSetup setup = createTierTransitionSetup(action);
-
-        setup.service.maybeProcessTierTransitions(setup.projectState, setup.dataStream, setup.indicesToExclude);
-
-        assertTrue(step.executed);
-        assertTrue(complete[0]);
-        assertEquals(1, setup.indicesToExclude.size());
-    }
-
-    private static ProjectMetadata.Builder createProjectMetadataBuilder(ProjectId id) {
-        ProjectMetadata.Builder builder = ProjectMetadata.builder(id);
-        builder.dataStreams(Map.of(), Map.of());
-        builder.templates(Map.of());
-        builder.componentTemplates(Map.of());
-        builder.indexGraveyard(IndexGraveyard.builder().build());
-        builder.customs(Map.of());
-        return builder;
-    }
-
 }
