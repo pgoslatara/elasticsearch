@@ -170,7 +170,7 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
     final ResultDeduplicator<Tuple<ProjectId, String>, Void> clusterStateChangesDeduplicator;
     private final DataStreamLifecycleHealthInfoPublisher dslHealthInfoPublisher;
     private final DataStreamGlobalRetentionSettings globalRetentionSettings;
-    private final DlmAction[] actions;
+    private final List<DlmAction> actions;
     private LongSupplier nowSupplier;
     private final Clock clock;
     private final DataStreamLifecycleErrorStore errorStore;
@@ -220,7 +220,7 @@ public class DataStreamLifecycleService implements ClusterStateListener, Closeab
         AllocationService allocationService,
         DataStreamLifecycleHealthInfoPublisher dataStreamLifecycleHealthInfoPublisher,
         DataStreamGlobalRetentionSettings globalRetentionSettings,
-        DlmAction[] actions
+        List<DlmAction> actions
     ) {
         this.settings = settings;
         this.client = client;

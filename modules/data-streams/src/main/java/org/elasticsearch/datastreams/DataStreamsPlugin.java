@@ -213,7 +213,7 @@ public class DataStreamsPlugin extends Plugin implements ActionPlugin, HealthPlu
         );
 
         // Register DLM actions (tiers) here. Order matters - they will be executed in the order they are listed for a given index.
-        var dlmActions = new DlmAction[] { new NoopAction() };
+        List<DlmAction> dlmActions = List.of(new NoopAction());
 
         dataLifecycleInitialisationService.set(
             new DataStreamLifecycleService(

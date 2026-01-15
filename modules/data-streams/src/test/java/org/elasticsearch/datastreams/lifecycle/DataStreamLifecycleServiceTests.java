@@ -97,6 +97,7 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -149,6 +150,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
     private final DataStreamGlobalRetentionSettings globalRetentionSettings = DataStreamGlobalRetentionSettings.create(
         ClusterSettings.createBuiltInClusterSettings()
     );
+    private List<DlmAction> actions;
 
     @Before
     public void setupServices() {
@@ -179,6 +181,9 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
             TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY
         );
         DataStreamLifecycleErrorStore errorStore = new DataStreamLifecycleErrorStore(() -> now);
+
+        actions = new ArrayList<>();
+
         dataStreamLifecycleService = new DataStreamLifecycleService(
             Settings.EMPTY,
             client,
@@ -190,15 +195,14 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
             allocationService,
             new DataStreamLifecycleHealthInfoPublisher(Settings.EMPTY, client, clusterService, errorStore),
             globalRetentionSettings,
-            new DlmAction[] {}
+            actions
         );
-        clientDelegate = null;
-        dataStreamLifecycleService.init();
     }
 
     @After
     public void cleanup() {
         clientSeenRequests.clear();
+        actions.clear();
         dataStreamLifecycleService.close();
         clusterService.close();
         threadPool.shutdownNow();
@@ -1507,7 +1511,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
             mock(AllocationService.class),
             new DataStreamLifecycleHealthInfoPublisher(Settings.EMPTY, getTransportRequestsRecordingClient(), clusterService, errorStore),
             globalRetentionSettings,
-            new DlmAction[] {}
+            Collections.emptyList()
         );
         assertThat(service.getLastRunDuration(), is(nullValue()));
         assertThat(service.getTimeBetweenStarts(), is(nullValue()));
@@ -1826,9 +1830,10 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         void doExecute(ActionType action, ActionRequest request, ActionListener listener);
     }
 
-    static class TestDlmStep implements DlmStep {
-        boolean isCompleted = false;
+    private class TestDlmStep implements DlmStep {
         boolean throwOnExecute = false;
+        boolean isCompleted = false;
+        int completedCheckCount = 0;
         int executeCount = 0;
 
         @Override
@@ -1852,22 +1857,15 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         public String stepName() {
             return "Test Step";
         }
-
-        public void setCompleted(boolean completed) {
-            isCompleted = completed;
-        }
-
-        public int getExecuteCount() {
-            return executeCount;
-        }
     }
 
-    static class TestDlmAction implements DlmAction {
+    private class TestDlmAction implements DlmAction {
         private final List<DlmStep> steps;
         private TimeValue schedule;
+        private boolean actionScheduleChecked = false;
 
-        TestDlmAction(List<DlmStep> steps, TimeValue schedule) {
-            this.steps = steps;
+        private TestDlmAction(TimeValue schedule, DlmStep... steps) {
+            this.steps = Arrays.asList(steps);
             this.schedule = schedule;
         }
 
@@ -1878,12 +1876,50 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
 
         @Override
         public List<DlmStep> steps() {
-            return new ArrayList<>(steps);
+            return steps;
         }
 
         @Override
         public Function<DataStreamLifecycle, TimeValue> schedulingFieldFunction() {
+            actionScheduleChecked = true;
             return dsl -> schedule;
         }
+    }
+
+    // Test to ensure an action with no schedule does not have its stepCompleted method run nor its execute method called
+    public void testUnscheduledTierTransition() throws Exception {
+        TestDlmStep step1 = new TestDlmStep();
+        TestDlmAction action = new TestDlmAction(null, step1);
+
+        actions.add(action);
+
+        HashSet<Index> indicesToExclude;
+
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        int numBackingIndices = 3;
+        ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
+        DataStreamLifecycle zeroRetentionDataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
+        DataStreamLifecycle zeroRetentionFailuresLifecycle = DataStreamLifecycle.failuresLifecycleBuilder()
+            .dataRetention(TimeValue.ZERO)
+            .build();
+        DataStream dataStream = createDataStream(
+            builder,
+            dataStreamName,
+            numBackingIndices,
+            2,
+            settings(IndexVersion.current()),
+            zeroRetentionDataLifecycle,
+            zeroRetentionFailuresLifecycle,
+            now
+        );
+        builder.put(dataStream);
+
+        indicesToExclude = new HashSet<>();
+        dataStreamLifecycleService.maybeProcessTierTransitions(null, dataStream, indicesToExclude);
+
+        assertThat(action.actionScheduleChecked, equalTo(true));
+        assertThat(step1.completedCheckCount, equalTo(0));
+        assertThat(step1.executeCount, equalTo(0));
+        assertThat(indicesToExclude, empty());
     }
 }
