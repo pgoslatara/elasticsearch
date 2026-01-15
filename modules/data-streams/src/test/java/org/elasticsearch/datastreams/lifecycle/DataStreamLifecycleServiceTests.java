@@ -9,6 +9,7 @@
 
 package org.elasticsearch.datastreams.lifecycle;
 
+import org.apache.logging.log4j.Level;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionRequest;
@@ -82,6 +83,7 @@ import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramInter
 import org.elasticsearch.snapshots.EmptySnapshotsInfoService;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.EqualsHashCodeTestUtils;
+import org.elasticsearch.test.MockLog;
 import org.elasticsearch.test.client.NoOpClient;
 import org.elasticsearch.test.gateway.TestGatewayAllocator;
 import org.elasticsearch.threadpool.TestThreadPool;
@@ -2121,7 +2123,20 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         ProjectState projectState = projectStateFromProject(builder);
 
         Set<Index> indicesToExclude = new HashSet<>();
-        dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+
+        try (var mockLog = MockLog.capture(DataStreamLifecycleService.class)) {
+            mockLog.addExpectation(
+                new MockLog.SeenEventExpectation(
+                    "step execution warning",
+                    DataStreamLifecycleService.class.getCanonicalName(),
+                    Level.WARN,
+                    "Unable to execute step [Test Step] for action [Test DLM Action]"
+                )
+            );
+
+            dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+            mockLog.assertAllExpectationsMatched();
+        }
 
         int eligibleCount = dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false).size();
         assertThat(step1.completedCheckCount, equalTo(eligibleCount));
