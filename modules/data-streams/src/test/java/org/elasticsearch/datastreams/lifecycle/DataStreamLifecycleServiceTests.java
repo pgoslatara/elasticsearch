@@ -1935,16 +1935,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
         ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
         DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
-        DataStream dataStream = createDataStream(
-            builder,
-            dataStreamName,
-            3,
-            0,
-            settings(IndexVersion.current()),
-            dataLifecycle,
-            null,
-            now
-        );
+        DataStream dataStream = createDataStream(builder, dataStreamName, 3, 0, settings(IndexVersion.current()), dataLifecycle, null, now);
         builder.put(dataStream);
         ProjectState projectState = projectStateFromProject(builder);
 
@@ -1966,16 +1957,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
         ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
         DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
-        DataStream dataStream = createDataStream(
-            builder,
-            dataStreamName,
-            3,
-            0,
-            settings(IndexVersion.current()),
-            dataLifecycle,
-            null,
-            now
-        );
+        DataStream dataStream = createDataStream(builder, dataStreamName, 3, 0, settings(IndexVersion.current()), dataLifecycle, null, now);
         builder.put(dataStream);
         ProjectState projectState = projectStateFromProject(builder);
 
@@ -2004,16 +1986,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
         ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
         DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
-        DataStream dataStream = createDataStream(
-            builder,
-            dataStreamName,
-            3,
-            0,
-            settings(IndexVersion.current()),
-            dataLifecycle,
-            null,
-            now
-        );
+        DataStream dataStream = createDataStream(builder, dataStreamName, 3, 0, settings(IndexVersion.current()), dataLifecycle, null, now);
         builder.put(dataStream);
         ProjectState projectState = projectStateFromProject(builder);
 
@@ -2040,16 +2013,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
         ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
         DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
-        DataStream dataStream = createDataStream(
-            builder,
-            dataStreamName,
-            3,
-            0,
-            settings(IndexVersion.current()),
-            dataLifecycle,
-            null,
-            now
-        );
+        DataStream dataStream = createDataStream(builder, dataStreamName, 3, 0, settings(IndexVersion.current()), dataLifecycle, null, now);
         builder.put(dataStream);
         ProjectState projectState = projectStateFromProject(builder);
 
@@ -2074,16 +2038,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
         ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
         DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
-        DataStream dataStream = createDataStream(
-            builder,
-            dataStreamName,
-            3,
-            0,
-            settings(IndexVersion.current()),
-            dataLifecycle,
-            null,
-            now
-        );
+        DataStream dataStream = createDataStream(builder, dataStreamName, 3, 0, settings(IndexVersion.current()), dataLifecycle, null, now);
         builder.put(dataStream);
         ProjectState projectState = projectStateFromProject(builder);
 
@@ -2109,16 +2064,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
         ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
         DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
-        DataStream dataStream = createDataStream(
-            builder,
-            dataStreamName,
-            3,
-            0,
-            settings(IndexVersion.current()),
-            dataLifecycle,
-            null,
-            now
-        );
+        DataStream dataStream = createDataStream(builder, dataStreamName, 3, 0, settings(IndexVersion.current()), dataLifecycle, null, now);
         builder.put(dataStream);
         ProjectState projectState = projectStateFromProject(builder);
 
