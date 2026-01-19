@@ -1988,12 +1988,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         builder.put(dataStream);
         ProjectState projectState = projectStateFromProject(builder);
 
-        List<Index> indicesEligible = dataStream.getIndicesPastRetention(
-            projectState.metadata()::index,
-            () -> now,
-            schedule,
-            false
-        );
+        List<Index> indicesEligible = dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false);
 
         // Exclude only the first half of eligible indices
         Set<Index> indicesToExclude = new HashSet<>();
