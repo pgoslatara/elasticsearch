@@ -1832,11 +1832,12 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         void doExecute(ActionType action, ActionRequest request, ActionListener listener);
     }
 
-    private class TestDlmStep implements DlmStep {
+    private static class TestDlmStep implements DlmStep {
         boolean throwOnExecute = false;
         boolean isCompleted = false;
         int completedCheckCount = 0;
         int executeCount = 0;
+        final Set<String> executedIndices = new HashSet<>();
 
         @Override
         public boolean stepCompleted(Index index, ProjectState projectState) {
@@ -1851,6 +1852,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
             ResultDeduplicator<Tuple<ProjectId, TransportRequest>, Void> transportActionsDeduplicator
         ) {
             executeCount++;
+            executedIndices.add(index.getName());
             if (throwOnExecute) {
                 throw new RuntimeException("Test exception from DlmStep execute");
             }
@@ -1862,9 +1864,9 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         }
     }
 
-    private class TestDlmAction implements DlmAction {
+    private static class TestDlmAction implements DlmAction {
         private final List<DlmStep> steps;
-        private TimeValue schedule;
+        private final TimeValue schedule;
         private boolean actionScheduleChecked = false;
 
         private TestDlmAction(TimeValue schedule, DlmStep... steps) {
@@ -1889,7 +1891,6 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         }
     }
 
-    // Test to ensure an action with no schedule does not have its stepCompleted method run nor its execute method called
     public void testUnscheduledTierTransition() throws Exception {
         TestDlmStep step1 = new TestDlmStep();
         TestDlmAction action = new TestDlmAction(null, step1);
@@ -1974,6 +1975,62 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         assertThat(indicesToExclude, equalTo(indicesEligible));
     }
 
+    public void testMaybeProcessTierTransitionsPartialIndicesExcluded() {
+        TestDlmStep step = new TestDlmStep();
+        TimeValue schedule = TimeValue.timeValueMillis(1);
+        TestDlmAction action = new TestDlmAction(schedule, step);
+        actions.add(action);
+
+        String dataStreamName = randomAlphaOfLength(10).toLowerCase(Locale.ROOT);
+        ProjectMetadata.Builder builder = ProjectMetadata.builder(randomProjectIdOrDefault());
+        DataStreamLifecycle dataLifecycle = DataStreamLifecycle.dataLifecycleBuilder().dataRetention(TimeValue.ZERO).build();
+        DataStream dataStream = createDataStream(builder, dataStreamName, 3, 0, settings(IndexVersion.current()), dataLifecycle, null, now);
+        builder.put(dataStream);
+        ProjectState projectState = projectStateFromProject(builder);
+
+        List<Index> indicesEligible = dataStream.getIndicesPastRetention(
+            projectState.metadata()::index,
+            () -> now,
+            schedule,
+            false
+        );
+
+        // Exclude only the first half of eligible indices
+        Set<Index> indicesToExclude = new HashSet<>();
+        Set<Index> expectedExcludedIndices = new HashSet<>();
+        for (int i = 0; i < indicesEligible.size() / 2; i++) {
+            Index index = indicesEligible.get(i);
+            indicesToExclude.add(index);
+            expectedExcludedIndices.add(index);
+        }
+
+        dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
+
+        assertThat(action.actionScheduleChecked, equalTo(true));
+
+        for (Index excludedIndex : expectedExcludedIndices) {
+            assertThat(
+                "Step should not be executed for excluded index: " + excludedIndex.getName(),
+                step.executedIndices.contains(excludedIndex.getName()),
+                is(false)
+            );
+        }
+
+        for (int i = indicesEligible.size() / 2; i < indicesEligible.size(); i++) {
+            Index nonExcludedIndex = indicesEligible.get(i);
+            assertThat(
+                "Step should be executed for non-excluded index: " + nonExcludedIndex.getName(),
+                step.executedIndices.contains(nonExcludedIndex.getName()),
+                is(true)
+            );
+        }
+
+        int expectedExecuteCount = indicesEligible.size() - expectedExcludedIndices.size();
+        assertThat(step.executeCount, equalTo(expectedExecuteCount));
+
+        assertThat(indicesToExclude, hasSize(indicesEligible.size()));
+    }
+
     public void testMaybeProcessTierTransitionsAllStepsCompleted() {
         TestDlmStep step1 = new TestDlmStep();
         step1.isCompleted = true;
@@ -1993,6 +2050,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         Set<Index> indicesToExclude = new HashSet<>();
         dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
 
+        assertThat(action.actionScheduleChecked, equalTo(true));
         int eligibleCount = dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false).size();
         assertThat(step1.completedCheckCount, equalTo(eligibleCount));
         assertThat(step2.completedCheckCount, equalTo(eligibleCount));
@@ -2020,6 +2078,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         Set<Index> indicesToExclude = new HashSet<>();
         dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
 
+        assertThat(action.actionScheduleChecked, equalTo(true));
         int eligibleCount = dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false).size();
         assertThat(step1.completedCheckCount, equalTo(eligibleCount));
         assertThat(step2.completedCheckCount, equalTo(eligibleCount));
@@ -2045,6 +2104,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
         Set<Index> indicesToExclude = new HashSet<>();
         dataStreamLifecycleService.maybeProcessTierTransitions(projectState, dataStream, indicesToExclude);
 
+        assertThat(action.actionScheduleChecked, equalTo(true));
         int eligibleCount = dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false).size();
         assertThat(step1.completedCheckCount, equalTo(0));
         assertThat(step2.completedCheckCount, equalTo(eligibleCount));
@@ -2084,6 +2144,7 @@ public class DataStreamLifecycleServiceTests extends ESTestCase {
             mockLog.assertAllExpectationsMatched();
         }
 
+        assertThat(action.actionScheduleChecked, equalTo(true));
         int eligibleCount = dataStream.getIndicesPastRetention(projectState.metadata()::index, () -> now, schedule, false).size();
         assertThat(step1.completedCheckCount, equalTo(eligibleCount));
         assertThat(step2.completedCheckCount, equalTo(eligibleCount));
