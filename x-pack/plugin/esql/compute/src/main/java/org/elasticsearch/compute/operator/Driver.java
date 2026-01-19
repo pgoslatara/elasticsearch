@@ -20,8 +20,10 @@ import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.core.Releasables;
 import org.elasticsearch.core.TimeValue;
+import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.logging.LogManager;
 import org.elasticsearch.logging.Logger;
+import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.tasks.TaskCancelledException;
 
 import java.util.ArrayList;
@@ -196,7 +198,14 @@ public class Driver implements Releasable, Describable {
                 LOGGER.debug("Cancelling running driver [{}]", shortDescription, e);
                 throw e;
             } catch (RuntimeException e) {
-                LOGGER.warn(Strings.format("Error running driver [%s]", shortDescription), e);
+                RestStatus status = ExceptionsHelper.status(e);
+                // Don't log 4xx client errors (including cancellations) as warnings/errors
+                // as they are expected user actions, not system failures
+                if (status.getStatus() >= 400 && status.getStatus() < 500) {
+                    LOGGER.debug(Strings.format("Client error running driver [%s]", shortDescription), e);
+                } else {
+                    LOGGER.warn(Strings.format("Error running driver [%s]", shortDescription), e);
+                }
                 throw e;
             } finally {
                 assert driverContext.assertEndRunLoop();
